@@ -443,8 +443,28 @@ module JSONAPI
         end
       end
 
+      #CRZ: TODO: not sure how many of these there really are.
+      SINGLE_OPERAND_AREL_PREDICATES = %i(gt gteq lt lteq)
       def apply_filter(records, filter, value, _options = {})
-        records.where(filter => value)
+        case value
+        when Hash then
+          #CRZ: TODO: table name here may not be correct in some circumstances!
+          arel_table = Arel::Table.new(_model_name.pluralize.downcase.  intern)
+          predicate_chain = nil
+
+          value.each do |(operation, operand)|
+            op = operation.intern
+
+            #CRZ: TODO: perhaps throwing an error would be better than ignoring the rest of the members of the array?
+            operand = operand.first if SINGLE_OPERAND_AREL_PREDICATES.include?(op)
+            predicate = arel_table[filter].send(op, operand)
+            predicate_chain = predicate_chain && predicate_chain.and(predicate) || predicate
+          end
+
+          records.where(predicate_chain)
+        else
+          records.where(filter => value)
+        end
       end
 
       def apply_filters(records, filters, options = {})
