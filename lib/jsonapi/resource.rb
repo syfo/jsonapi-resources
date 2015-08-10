@@ -534,13 +534,25 @@ module JSONAPI
       end
 
       def verify_filter(filter, raw, context = nil)
-        filter_values = []
-        filter_values += CSV.parse_line(raw) unless raw.nil? || raw.empty?
+        filter_values = parse_filter_raw(raw)
 
         if is_filter_relationship?(filter)
           verify_relationship_filter(filter, filter_values, context)
         else
           verify_custom_filter(filter, filter_values, context)
+        end
+      end
+
+      def parse_filter_raw(raw)
+        case raw
+          when String
+            CSV.parse_line(raw) || []
+          when Hash
+            raw.inject({}) do |s, (k, v)|
+              s.merge(k => parse_filter_raw(v))
+            end
+          when NilClass
+            []
         end
       end
 
