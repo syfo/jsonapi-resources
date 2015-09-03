@@ -158,7 +158,7 @@ module JSONAPI
     end
 
     def records
-      related_resource_records = source_resource.records_for(@relationship_type)
+      related_resource_records = source_resource.public_send("records_for_" + @relationship_type)
       @resource_klass.filter_records(@filters, @options, related_resource_records)
     end
 
@@ -175,7 +175,7 @@ module JSONAPI
     def options
       opts = {}
       opts.merge!(pagination_params: pagination_params) if JSONAPI.configuration.top_level_links_include_pagination
-      opts.merge!(record_count: pagination_params) if JSONAPI.configuration.top_level_meta_include_record_count
+      opts.merge!(record_count: record_count) if JSONAPI.configuration.top_level_meta_include_record_count
       opts
     end
 
@@ -185,7 +185,7 @@ module JSONAPI
                                               sort_criteria: @sort_criteria,
                                               paginator: @paginator)
 
-      return JSONAPI::RelatedResourcesOperationResult.new(:ok, source_resource, related_resource, options)
+      return JSONAPI::RelatedResourcesOperationResult.new(:ok, source_resource, @relationship_type, related_resource, options)
 
     rescue JSONAPI::Exceptions::Error => e
       return JSONAPI::ErrorsOperationResult.new(e.errors[0].code, e.errors)

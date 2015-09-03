@@ -111,8 +111,8 @@ module JSONAPI
 
     # Override this on a resource to customize how the associated records
     # are fetched for a model. Particularly helpful for authorization.
-    def records_for(relationship_name, _options = {})
-      model.public_send relationship_name
+    def records_for(relation_name, _options = {})
+      model.public_send relation_name
     end
 
     private
@@ -165,10 +165,11 @@ module JSONAPI
       relationship_key_values.each do |relationship_key_value|
         related_resource = relationship.resource_klass.find_by_key(relationship_key_value, context: @context)
 
+        relation_name = relationship.relation_name(context: @context)
         # TODO: Add option to skip relations that already exist instead of returning an error?
-        relation = @model.public_send(relationship.type).where(relationship.primary_key => relationship_key_value).first
+        relation = @model.public_send(relation_name).where(relationship.primary_key => relationship_key_value).first
         if relation.nil?
-          @model.public_send(relationship.type) << related_resource.model
+          @model.public_send(relation_name) << related_resource.model
         else
           fail JSONAPI::Exceptions::HasManyRelationExists.new(relationship_key_value)
         end
@@ -576,9 +577,50 @@ module JSONAPI
         end
       end
 
-      # override to allow for key processing and checking
-      def verify_key(key, _context = nil)
-        key && Integer(key)
+      def key_type(key_type)
+        @_resource_key_type = key_type
+      end
+
+      def resource_key_type
+        @_resource_key_type || JSONAPI.configuration.resource_key_type
+      end
+
+      def verify_key(key, context = nil)
+        key_type = resource_key_type
+        verification_proc = case key_type
+
+        when :integer
+          -> (key, context) {
+            begin
+              return key if key.nil?
+              Integer(key)
+            rescue
+              raise JSONAPI::Exceptions::InvalidFieldValue.new(:id, key)
+            end
+          }
+        when :string
+          -> (key, context) {
+            return key if key.nil?
+            if key.to_s.include?(',')
+              raise JSONAPI::Exceptions::InvalidFieldValue.new(:id, key)
+            else
+              key
+            end
+          }
+        when :uuid
+          -> (key, context) {
+            return key if key.nil?
+            if key.to_s.match(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/)
+              key
+            else
+              raise JSONAPI::Exceptions::InvalidFieldValue.new(:id, key)
+            end
+          }
+        else
+          key_type
+        end
+
+        verification_proc.call(key, context)
       rescue
         raise JSONAPI::Exceptions::InvalidFieldValue.new(:id, key)
       end
@@ -717,7 +759,7 @@ module JSONAPI
           check_reserved_relationship_name(attr)
 
           # Initialize from an ActiveRecord model's properties
-          if _model_class && _model_class < ActiveRecord::Base
+          if _model_class && _model_class.ancestors.collect{|ancestor| ancestor.name}.include?('ActiveRecord::Base')
             model_association = _model_class.reflect_on_association(attr)
             if model_association
               options[:class_name] ||= model_association.class_name

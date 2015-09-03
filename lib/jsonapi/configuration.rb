@@ -5,9 +5,11 @@ require 'jsonapi/active_record_operations_processor'
 module JSONAPI
   class Configuration
     attr_reader :json_key_format,
+                :resource_key_type,
                 :key_formatter,
                 :route_format,
                 :route_formatter,
+                :raise_if_parameters_not_allowed,
                 :operations_processor,
                 :allow_include,
                 :allow_sort,
@@ -33,10 +35,15 @@ module JSONAPI
       #:basic, :active_record, or custom
       self.operations_processor = :active_record
 
+      #:integer, :uuid, :string, or custom (provide a proc)
+      self.resource_key_type = :integer
+
       # optional request features
       self.allow_include = true
       self.allow_sort = true
       self.allow_filter = true
+
+      self.raise_if_parameters_not_allowed = true
 
       # :none, :offset, :paged, or a custom paginator name
       self.default_paginator = :none
@@ -74,6 +81,10 @@ module JSONAPI
       @key_formatter = JSONAPI::Formatter.formatter_for(format)
     end
 
+    def resource_key_type=(key_type)
+      @resource_key_type = key_type
+    end
+
     def route_format=(format)
       @route_format = format
       @route_formatter = JSONAPI::Formatter.formatter_for(format)
@@ -105,6 +116,8 @@ module JSONAPI
     attr_writer :always_include_to_one_linkage_data
 
     attr_writer :always_include_to_many_linkage_data
+
+    attr_writer :raise_if_parameters_not_allowed
   end
 
   class << self

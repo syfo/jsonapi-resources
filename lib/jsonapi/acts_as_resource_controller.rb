@@ -87,6 +87,7 @@ module JSONAPI
 
     def setup_request
       @request = JSONAPI::Request.new(params, context: context, key_formatter: key_formatter)
+
       render_errors(@request.errors) unless @request.errors.empty?
     rescue => e
       handle_exceptions(e)
@@ -121,6 +122,14 @@ module JSONAPI
       {}
     end
 
+    def base_meta
+      if @request.nil? || @request.warnings.empty?
+        base_response_meta
+      else
+        base_response_meta.merge(warnings: @request.warnings)
+      end
+    end
+
     def base_response_links
       {}
     end
@@ -147,7 +156,7 @@ module JSONAPI
         base_url: base_url,
         key_formatter: key_formatter,
         route_formatter: route_formatter,
-        base_meta: base_response_meta,
+        base_meta: base_meta,
         base_links: base_response_links,
         resource_serializer_klass: resource_serializer_klass,
         request: @request
@@ -171,6 +180,38 @@ module JSONAPI
         # :nocov:
         fail e
         # :nocov:
+      end
+    end
+
+    def add_error_callbacks(callbacks)
+      @request.server_error_callbacks = callbacks || []
+    end
+
+    # Pass in a methods or a block to be run when an exception is 
+    # caught that is not a JSONAPI::Exceptions::Error
+    # Useful for additional logging or notification configuration that 
+    # would normally depend on rails catching and rendering an exception.
+    # Ignores whitelist exceptions from config
+
+    class_methods do 
+      def on_server_error(*args, &callback_block)
+        callbacks = []
+
+        if callback_block 
+          callbacks << callback_block
+        end
+
+        method_callbacks = args.map do |method|
+          ->(error) do 
+            if self.respond_to? method
+              send(method, error)
+            else
+              Rails.logger.warn("#{method} not defined on #{self}, skipping error callback")
+            end
+          end
+        end.compact
+        callbacks += method_callbacks
+        append_before_filter { add_error_callbacks(callbacks) }
       end
     end
   end

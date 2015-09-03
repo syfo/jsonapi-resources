@@ -397,8 +397,11 @@ end
 class PurchaseOrder < ActiveRecord::Base
   belongs_to :customer
   has_many :line_items
+  has_many :admin_line_items, class_name: 'LineItem', foreign_key: 'purchase_order_id'
 
   has_and_belongs_to_many :order_flags, join_table: :purchase_orders_order_flags
+
+  has_and_belongs_to_many :admin_order_flags, join_table: :purchase_orders_order_flags, class_name: 'OrderFlag'
 end
 
 class OrderFlag < ActiveRecord::Base
@@ -474,6 +477,11 @@ class PostsController < ActionController::Base
   # the operations processor.
   rescue_from PostsController::SpecialError do
     head :forbidden
+  end
+
+  #called by test_on_server_error
+  def self.set_callback_message(error)
+    @callback_message = "Sent from method"
   end
 end
 
@@ -618,6 +626,9 @@ module Api
     end
 
     class PurchaseOrdersController < JSONAPI::ResourceController
+      def context
+        {current_user: $test_user}
+      end
     end
 
     class LineItemsController < JSONAPI::ResourceController
@@ -794,16 +805,8 @@ class PostResource < JSONAPI::Resource
     return filter, values
   end
 
-  def self.is_num?(str)
-    begin
-      !!Integer(str)
-    rescue ArgumentError, TypeError
-      false
-    end
-  end
-
   def self.verify_key(key, context = nil)
-    raise JSONAPI::Exceptions::InvalidFieldValue.new(:id, key) unless is_num?(key)
+    super(key)
     raise JSONAPI::Exceptions::RecordNotFound.new(key) unless find_by_key(key, context: context)
     return key
   end
@@ -819,9 +822,7 @@ class IsoCurrencyResource < JSONAPI::Resource
 
   filter :country_name
 
-  def self.verify_key(key, context = nil)
-    key && String(key)
-  end
+  key_type :string
 end
 
 class ExpenseEntryResource < JSONAPI::Resource
@@ -1026,6 +1027,8 @@ module Api
         end
       }
 
+      has_many :aliased_comments, class_name: 'BookComments', relation_name: :approved_book_comments
+
       filters :banned, :book_comments
 
       class << self
@@ -1200,8 +1203,28 @@ module Api
       attribute :total
 
       has_one :customer
-      has_many :line_items
-      has_many :order_flags, acts_as_set: true
+      has_many :line_items, relation_name: -> (options = {}) {
+                            context = options[:context]
+                            current_user = context ? context[:current_user] : nil
+
+                            unless current_user && current_user.book_admin
+                              :line_items
+                            else
+                              :admin_line_items
+                            end
+                          }
+
+      has_many :order_flags, acts_as_set: true,
+               relation_name: -> (options = {}) {
+                             context = options[:context]
+                             current_user = context ? context[:current_user] : nil
+
+                             unless current_user && current_user.book_admin
+                               :order_flags
+                             else
+                               :admin_order_flags
+                             end
+                           }
     end
 
     class OrderFlagResource < JSONAPI::Resource
