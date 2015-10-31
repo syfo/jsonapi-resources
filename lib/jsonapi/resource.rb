@@ -445,12 +445,11 @@ module JSONAPI
       end
 
       #CRZ: TODO: not sure how many of these there really are.
-      SINGLE_OPERAND_AREL_PREDICATES = %i(gt gteq lt lteq)
+      SINGLE_OPERAND_AREL_PREDICATES = %i(eq gt gteq lt lteq)
       def apply_filter(records, filter, value, _options = {})
         case value
         when Hash then
-          #CRZ: TODO: table name here may not be correct in some circumstances!
-          arel_table = Arel::Table.new(_model_name.pluralize.downcase.  intern)
+          arel_table = Arel::Table.new(_model_name.tableize.intern)
           predicate_chain = nil
 
           value.each do |(operation, operand)|
