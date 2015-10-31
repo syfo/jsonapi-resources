@@ -446,18 +446,35 @@ module JSONAPI
 
       #CRZ: TODO: not sure how many of these there really are.
       SINGLE_OPERAND_AREL_PREDICATES = %i(eq gt gteq lt lteq)
+      ZERO_OPERAND_PREDICATES = %i(missing exists)
       def apply_filter(records, filter, value, _options = {})
         case value
         when Hash then
           arel_table = Arel::Table.new(_model_name.tableize.intern)
           predicate_chain = nil
 
-          value.each do |(operation, operand)|
+          value.each do |(operation, operands)|
             op = operation.intern
 
-            #CRZ: TODO: perhaps throwing an error would be better than ignoring the rest of the members of the array?
-            operand = operand.first if SINGLE_OPERAND_AREL_PREDICATES.include?(op)
-            predicate = arel_table[filter].send(op, operand)
+            predicate =  if ZERO_OPERAND_PREDICATES.include?(op)
+                            case op
+                            when :missing then arel_table[filter].eq(nil)
+                            when :exists then arel_table[filter].not_eq(nil)
+                            else
+                              #CRZ: TODO: what to do when given an unknown operation?
+                              nil
+                            end
+                          elsif SINGLE_OPERAND_AREL_PREDICATES.include?(op)
+                            operands.inject(nil) do |predicate_subchain, operand|
+                              predicate = arel_table[filter].send(op, operand.first)
+                              predicate_subchain ? predicate_subchain.or(predicate) : predicate
+                            end
+                          else
+                            nil
+                            #CRZ: TODO: what to do when given an unknown operation?
+                          end
+
+            #AND different operations, OR the same operations
             predicate_chain = predicate_chain && predicate_chain.and(predicate) || predicate
           end
 
@@ -566,11 +583,14 @@ module JSONAPI
       def parse_filter_raw(raw)
         case raw
           when String
+            #CRZ: TODO: parse line splits based on commas, which will throw off exact string matching..
             CSV.parse_line(raw) || []
           when Hash
             raw.inject({}) do |s, (k, v)|
               s.merge(k => parse_filter_raw(v))
             end
+          when Array
+            raw.map {|v| parse_filter_raw(v) }.flatten
           when NilClass
             []
         end
